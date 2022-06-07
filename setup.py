@@ -1,7 +1,7 @@
 import setuptools
 from setuptools.command.install import install as _install
 
-with open("README.md") as f:
+with open("readme.md") as f:
 	ld = f.read()
 
 #pip version
