@@ -96,6 +96,8 @@ def colors_by_array(pnot,alpha=.9):
 	return colors
 
 def quick_bonds(mol,cutoff):
+	if mol is None:
+		return np.array((0,2),dtype=np.int32)
 
 	@nb.njit
 	def bondlist(xyz,cutoff):
@@ -200,6 +202,9 @@ def get_bond_faces(xyz,bonds,radius=.6,nrad=10):
 
 def trace_backbone_protein(mol):
 	bonds = []
+	if mol is None:
+		return bonds
+
 	for chain in mol.unique_chains:
 		subchain = mol.get_chain(chain)
 		trace = []
@@ -215,25 +220,25 @@ def trace_backbone_protein(mol):
 			bonds.append(trace)
 	return bonds
 
-def mask_density_mol(mol,grid,density,fill_value=0,cutoff=4.):
-	@nb.njit
-	def _mask_density_mol(xyz,origin,nxyz,dxyz,density,value,cutoff):
-		out = np.zeros(density.shape)+value
-		for i in range(nxyz[0]):
-			x = origin[0] + i*dxyz[0]
-			for j in range(nxyz[1]):
-				y = origin[1] + j*dxyz[1]
-				for k in range(nxyz[2]):
-					z = origin[2] + k*dxyz[2]
-					for l in range(xyz.shape[0]):
-						rl = xyz[l]
-						r = np.sqrt((rl[0]-x)**2.+(rl[1]-y)**2. + (rl[2]-z)**2.)
-						if r < cutoff:
-							out[i,j,k] = density[i,j,k]
-							break
-		return out
-
-	return _mask_density_mol(mol.xyz,grid.origin,grid.nxyz,grid.dxyz,density.copy(),fill_value,cutoff)
+# def mask_density_mol(mol,grid,density,fill_value=0,cutoff=4.):
+# 	@nb.njit
+# 	def _mask_density_mol(xyz,origin,nxyz,dxyz,density,value,cutoff):
+# 		out = np.zeros(density.shape)+value
+# 		for i in range(nxyz[0]):
+# 			x = origin[0] + i*dxyz[0]
+# 			for j in range(nxyz[1]):
+# 				y = origin[1] + j*dxyz[1]
+# 				for k in range(nxyz[2]):
+# 					z = origin[2] + k*dxyz[2]
+# 					for l in range(xyz.shape[0]):
+# 						rl = xyz[l]
+# 						r = np.sqrt((rl[0]-x)**2.+(rl[1]-y)**2. + (rl[2]-z)**2.)
+# 						if r < cutoff:
+# 							out[i,j,k] = density[i,j,k]
+# 							break
+# 		return out
+#
+# 	return _mask_density_mol(mol.xyz,grid.origin,grid.nxyz,grid.dxyz,density.copy(),fill_value,cutoff)
 
 class molVisual(CompoundVisual):
 	"""
@@ -368,6 +373,9 @@ class viewer(object):
 		self.options = options
 		self.verbose = verbose
 
+		if verbose:
+			print(self.options)
+
 		# Prepare canvas
 		self.canvas = scene.SceneCanvas(keys='interactive', size=(options['width'],options['height']), show=True,bgcolor=options['bgcolor'],title='blobview')
 		self.view = self.canvas.central_widget.add_view()
@@ -441,7 +449,10 @@ class viewer(object):
 
 	def reset_camera(self):
 		self.view.camera.depth_value = 1000
-		self.view.camera.center=self.mol.xyz.mean(0)
+		if not self.mol is None:
+			self.view.camera.center=self.mol.xyz.mean(0)
+		else:
+			self.view.camera.center=np.array((0.,0.,0))
 		self.view.camera.distance=30
 
 	def create_cameras(self):
@@ -455,38 +466,40 @@ class viewer(object):
 		self.colors_by_element()
 		self.bonds = quick_bonds(self.mol,self.options['quickbond_cutoff'])
 
-		self.mol_vis = vismol(self.mol.xyz,
-						bonds = self.bonds,
-						parent=self.view.scene,
-						bond_radius=self.options['bond_radius'],
-						bond_color=self.options['bond_color'],
-						atom_radius=self.options['atom_radius'],
-						edge_color=self.options['atom_edge_color'],
-						cols=self.options['atom_resolution'],
-						rows=self.options['atom_resolution'],
-						face_colors=self.colors,
-						shading=None
-						)
-
-		self.wire_vis = visdensity(density=self.data,
-							grid=self.grid,
-							wireframe=True,
-							level=self.options['iso_thresh'],
-							iso_color=self.options['wire_color'],
+		if not self.mol is None:
+			self.mol_vis = vismol(self.mol.xyz,
+							bonds = self.bonds,
 							parent=self.view.scene,
+							bond_radius=self.options['bond_radius'],
+							bond_color=self.options['bond_color'],
+							atom_radius=self.options['atom_radius'],
+							edge_color=self.options['atom_edge_color'],
+							cols=self.options['atom_resolution'],
+							rows=self.options['atom_resolution'],
+							face_colors=self.colors,
 							shading=None
 							)
 
-		self.iso_vis = visdensity(vertices=self.wire_vis._vertices, ## avoid double isosurface calculation
-							faces=self.wire_vis._faces,
-							density=self.data,
-							grid=self.grid,
-							wireframe=False,
-							level=self.options['iso_thresh'],
-							iso_color=self.options['iso_color'],
-							parent=self.view.scene,
-							shading='flat'
-							)
+		if not self.grid is None:
+			self.wire_vis = visdensity(density=self.data,
+								grid=self.grid,
+								wireframe=True,
+								level=self.options['iso_thresh'],
+								iso_color=self.options['wire_color'],
+								parent=self.view.scene,
+								shading=None
+								)
+
+			self.iso_vis = visdensity(vertices=self.wire_vis._vertices, ## avoid double isosurface calculation
+								faces=self.wire_vis._faces,
+								density=self.data,
+								grid=self.grid,
+								wireframe=False,
+								level=self.options['iso_thresh'],
+								iso_color=self.options['iso_color'],
+								parent=self.view.scene,
+								shading='flat'
+								)
 
 	def use_tight_filters(self):
 		# defval,front_cut,back_cut,front_minval,back_minval,front_rate,back_rate
@@ -529,20 +542,26 @@ class viewer(object):
 		self.flag_filter='wide'
 
 	def attach_filters(self):
-		self.mol_vis.attach(self.mol_filter)
-		self.wire_vis.attach(self.wire_filter)
-		self.iso_vis.attach(self.iso_filter)
+		if not self.mol is None:
+			self.mol_vis.attach(self.mol_filter)
+		if not self.grid is None:
+			self.wire_vis.attach(self.wire_filter)
+			self.iso_vis.attach(self.iso_filter)
 		self.flag_filters = True
 		self.view.update()
 
 	def remove_filters(self):
-		self.mol_vis.detach(self.mol_filter)
-		self.wire_vis.detach(self.wire_filter)
-		self.iso_vis.detach(self.iso_filter)
+		if not self.mol is None:
+			self.mol_vis.detach(self.mol_filter)
+		if not self.grid is None:
+			self.wire_vis.detach(self.wire_filter)
+			self.iso_vis.detach(self.iso_filter)
 		self.flag_filters = False
 		self.view.update()
 
 	def colors_by_prob(self):
+		if self.mol is None:
+			return
 		self.colors = np.ones((self.mol.xyz.shape[0],4))*self.options['alpha_molecule']
 		if not self.probs is None:
 			cs = colors_by_array(self.probs)
@@ -551,6 +570,8 @@ class viewer(object):
 		self.flag_colors = 'probs'
 
 	def colors_by_element(self):
+		if self.mol is None:
+			return
 		self.colors = np.ones((self.mol.xyz.shape[0],4))*self.options['alpha_molecule']
 		cs = colors_by_element(self.mol)
 		for i in range(self.mol.xyz.shape[0]):
@@ -558,6 +579,8 @@ class viewer(object):
 		self.flag_colors='elements'
 
 	def colors_by_chain(self):
+		if self.mol is None:
+			return
 		self.colors = np.ones((self.mol.xyz.shape[0],4))*self.options['alpha_molecule']
 		cs = colors_by_chain(self.mol)
 		for i in range(self.mol.xyz.shape[0]):
